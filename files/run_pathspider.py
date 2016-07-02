@@ -76,7 +76,7 @@ class MONROESpider:
 monroe = MONROESpider()
 
 for ifname in monroe.ifnames:
-    monroe.set_exclusive_interface(ifname)
-    subprocess.call(['pathspider', '-i', link, '/usr/share/doc/pathspider/examples/webtest.csv', '/tmp/output-' + link + '.txt'])
-    subprocess.call(['mv', '/tmp/output-' + link + '.ndjson', '/monroe/results'])
+    if monroe.set_exclusive_interface(ifname):
+        subprocess.call(['pathspider', '-i', link, '/usr/share/doc/pathspider/examples/webtest.csv', '/tmp/output-' + link + '.txt'])
+        subprocess.call(['mv', '/tmp/output-' + link + '.ndjson', '/monroe/results'])
 
