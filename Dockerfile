@@ -8,9 +8,10 @@ RUN gpg --keyserver keyring.debian.org --recv-key 0x1F72607C5FF2CCD53F01600D56FF
 RUN gpg --export -a 0x1F72607C5FF2CCD53F01600D56FF9EA4E9846C49 | apt-key add -
 RUN echo "deb https://people.debian.org/~irl/experimental unstable/" >> /etc/apt/sources.list
 RUN apt-get update
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y pathspider
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y pathspider python3-pip
+RUN pip3 install pyroute2
 
 COPY files/* /opt/monroe/
 
-ENTRYPOINT ["dumb-init", "--", "/opt/monroe/run_pathspider.sh"]
+ENTRYPOINT ["dumb-init", "--", "/opt/monroe/run_pathspider.py"]
 
