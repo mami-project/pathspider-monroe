@@ -2,11 +2,12 @@
 FROM monroe/base
 MAINTAINER Iain R. Learmonth <irl@fsfe.org>
 
-RUN echo "deb http://ftp.debian.org/debian jessie-backports main" >> /etc/apt/sources.list
+# Set up APT pinning and install dependencies
+RUN echo "deb http://ftp.debian.org/debian testing main" >> /etc/apt/sources.list
+COPY files/apt.preferences /etc/apt/preferences
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y apt-transport-https && apt-get clean
 RUN gpg --keyserver keyring.debian.org --recv-key 0xA8F7BA5041E133339CBA169676D58093F540ABCD && gpg --export -a 0xA8F7BA5041E133339CBA169676D58093F540ABCD | apt-key add - && echo "deb https://people.debian.org/~irl/experimental unstable/" >> /etc/apt/sources.list
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y pathspider python3-pip python3-libtrace && apt-get clean
-RUN pip3 install pyroute2
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y -t testing python3-pip python3-libtrace python3-pyroute2 && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y -t unstable pathspider && apt-get clean
 
 # Install pathspider wrapper
 COPY files/multispider /usr/bin
