@@ -1,0 +1,31 @@
+#!/usr/bin/python3
+# vim: expandtab tabstop=4 syntax=python
+
+import logging
+import sys
+import subprocess
+
+from pyroute2 import IPDB
+
+def main():
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("multispider")
+
+    # Set up IPDB
+    ip = IPDB()
+
+    # Get default interface
+    ifname = ip.interfaces[ip.routes['8.8.8.8']['oif']].ifname
+    logger.info("Default interface is: " + str(ifname))
+
+    # Call pathspider
+    args = ['pathspider', '-i', ifname]
+    args.extend(sys.argv[1:])
+    logger.info("Pathspider command is: " + " ".join(args))
+    subprocess.call(args)
+
+    # Clean up IPDB before exit
+    ip.release()
+
+if __name__ == "__main__":
+    sys.exit(main())
