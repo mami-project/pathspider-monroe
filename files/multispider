@@ -1,31 +1,120 @@
 #!/usr/bin/python3
 # vim: expandtab tabstop=4 syntax=python
-
 import logging
 import sys
 import subprocess
-
+from threading import Thread
 from pyroute2 import IPDB
+from pyroute2 import IPRoute
+import ipaddress
+import pprint
+import time
+import zmq
+
+
+def tablematch( addrset, tablekeys ):
+    for item in dict(addrset).keys():
+        for key in tablekeys:
+            try:
+                if ipaddress.ip_network(item).overlaps(
+                        ipaddress.ip_network(key)):
+                     print("MATCH!!! ")
+                     print(ipaddress.ip_network(item))
+                     print(ipaddress.ip_network(key))
+                     return 1
+                     sys.Exit(1)
+            except ValueError:
+                continue
+            except:
+                print("Bo-ho-ho")
+                return 0
+    return 0
+
+
+def metathread():
+    context = zmq.Context()
+    socket = context.socket(zmq.SUB)
+
+    socket.connect("tcp://172.17.0.1:5556")
+    topicfilter = ''
+    socket.setsockopt_string(zmq.SUBSCRIBE, topicfilter)
+    while True:
+        string = socket.recv()
+        print(string)
+
 
 def main():
+
+    # sets up logging
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("multispider")
+
+    # Starts metadata thread
+    t1 = Thread(target=metathread, daemon=True)
+    t1.start()
 
     # Set up IPDB
     ip = IPDB()
 
-    # Get default interface
-    ifname = ip.interfaces[ip.routes['8.8.8.8']['oif']].ifname
-    logger.info("Default interface is: " + str(ifname))
+    # Creates a set of the available interface names
+    s = set([interface.ifname for interface in ip.interfaces.values()])
 
-    # Call pathspider
-    args = ['pathspider', '-i', ifname]
-    args.extend(sys.argv[1:])
-    logger.info("Pathspider command is: " + " ".join(args))
-    subprocess.call(args)
+    # Removes the metadata and lo interfaces from the set
+    try:
+        s.remove('lo')
+        s.remove('metadata')
+    except:
+        logger.info("Metadata or lo not found!\n")
 
+    for a in s:
+        logger.info("Interface seen: " + str(ip.interfaces[a].ifname) + "\n")
+
+    # Gets a list of available table numbers
+    tables = ip.routes.tables.keys()
+    print("Tables seen: " + str(tables) + "\n")
+
+    # We're only interested in tables 1, 2 and 3
+    for i in list(tables):
+        if i == 1 or i == 2 or i == 3:
+            print ("Table running: "+str(i)) 
+            # Sets default route
+            try:
+                subprocess.call(["ip", "rule", "add", "from", "all", "lookup",
+                                 str(i), "priority", "32764"])
+            except:
+                logger.info("\nError adding IP-based rule for table" + str(i))
+            # Takes IPs for all interfaces and compares them against the table to determine the interface in use
+            for a in s:
+                addrset = ip.interfaces[a].ipaddr
+                print("Address set is: ")
+                print( addrset)
+                ifname = ip.interfaces[a].ifname
+                print("Interface is" + ifname + "\n")
+                tablekeys = ip.routes.tables[i].keys()
+                print("Tablekeys are:")
+                print( tablekeys )
+                try:
+                    if tablematch(addrset, tablekeys) == 1:
+                        logger.info("Running PATHSpider on interface: " +
+                                    ifname +"\n")
+                        args = ['pathspider', '-i', ifname]
+                        args.extend(sys.argv[1:])
+                        logger.info("Pathspider command is: " + " ".join(args)+"\n")
+                        subprocess.call(args)
+                except:
+                    logger.info(
+                        "Something went wrong with something tablematchey or pathspiderey")
+            # Deletes the route before moving on to the next
+            try:
+                subprocess.call(["ip", "rule", "del", "from", "all", "lookup",
+                                 str(i), "priority", "32764"])
+            except:
+                logger.info("\nError deleting IP-based rule for table" + str(i))
     # Clean up IPDB before exit
     ip.release()
+    #spec = {'src': 'all', 'table': i, 'priority': '32767'}
+    #ip.rules.add(spec).commit()
+
 
 if __name__ == "__main__":
     sys.exit(main())
