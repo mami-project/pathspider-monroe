@@ -11,6 +11,14 @@ import pprint
 import time
 import zmq
 import os
+ifname=""
+
+def cb(ipdb, msg, action):
+    if action == 'RTM_DELLINK':
+        ifn = msg['attrs'][0][1]
+        if ifn == ifname:
+            print("Results invalidated for" + str(ifname))
+            sys.exit(0)   
 
 def tablematch( addrset, tablekeys ):
     for item in dict(addrset).keys():
@@ -44,7 +52,6 @@ def metathread():
 
 
 def main():
-
     # sets up logging
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("multispider")
@@ -55,6 +62,9 @@ def main():
 
     # Set up IPDB
     ip = IPDB()
+    
+    # Starts a callback function 
+    ip.register_callback(cb)
 
     # Creates a set of the available interface names
     s = set([interface.ifname for interface in ip.interfaces.values()])
@@ -75,7 +85,7 @@ def main():
 
     # We're only interested in tables 1, 2 and 3
     for i in list(tables):
-        if i == 1 or i == 2 or i == 3:
+        if i == 255 or i == 2 or i == 3:
             logger.info("Table running: "+str(i)) 
             # Sets default route
             try:
@@ -94,7 +104,7 @@ def main():
                     if tablematch(addrset, tablekeys) == 1:
                         logger.info("Running PATHSpider on interface: " +
                                     ifname +"\n")
-                        ds=1
+                        ds=60
                         while ds < 63:
                             res_str=savestr+"."+str(ds)
                             args = ['pathspider', '-i', ifname, '-o', res_str]
@@ -106,7 +116,7 @@ def main():
                             subprocess.call(args)
                 except Exception as e:
                     logger.error(e)
-            # Deletes the route before moving on to the next
+            #Deletes the route before moving on to the next
             try:
                 subprocess.call(["ip", "rule", "del", "from", "all", "lookup",
                                  str(i), "priority", "32764"])
