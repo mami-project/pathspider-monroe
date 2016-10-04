@@ -10,7 +10,7 @@ import ipaddress
 import pprint
 import time
 import zmq
-
+import os
 
 def tablematch( addrset, tablekeys ):
     for item in dict(addrset).keys():
@@ -18,15 +18,15 @@ def tablematch( addrset, tablekeys ):
             try:
                 if ipaddress.ip_network(item).overlaps(
                         ipaddress.ip_network(key)):
-                     print("MATCH!!! ")
                      print(ipaddress.ip_network(item))
+                     print("matches")
                      print(ipaddress.ip_network(key))
                      return 1
                      sys.Exit(1)
             except ValueError:
                 continue
-            except:
-                print("Bo-ho-ho")
+            except Exception as e:
+                print(e)
                 return 0
     return 0
 
@@ -64,57 +64,56 @@ def main():
         s.remove('lo')
         s.remove('metadata')
     except:
-        logger.info("Metadata or lo not found!\n")
+        logger.error("Metadata or lo not found!\n")
 
     for a in s:
-        logger.info("Interface seen: " + str(ip.interfaces[a].ifname) + "\n")
+        logger.debug("Interface seen: " + str(ip.interfaces[a].ifname) + "\n")
 
     # Gets a list of available table numbers
     tables = ip.routes.tables.keys()
-    print("Tables seen: " + str(tables) + "\n")
+    logger.debug("Tables seen: " + str(tables) + "\n")
 
     # We're only interested in tables 1, 2 and 3
     for i in list(tables):
         if i == 1 or i == 2 or i == 3:
-            print ("Table running: "+str(i)) 
+            logger.info("Table running: "+str(i)) 
             # Sets default route
             try:
                 subprocess.call(["ip", "rule", "add", "from", "all", "lookup",
                                  str(i), "priority", "32764"])
             except:
-                logger.info("\nError adding IP-based rule for table" + str(i))
+                logger.error("\nError adding IP-based rule for table" + str(i))
             # Takes IPs for all interfaces and compares them against the table to determine the interface in use
             for a in s:
                 addrset = ip.interfaces[a].ipaddr
-                print("Address set is: ")
-                print( addrset)
                 ifname = ip.interfaces[a].ifname
+                savestr= "tmp/output." +str(ifname)
                 print("Interface is" + ifname + "\n")
                 tablekeys = ip.routes.tables[i].keys()
-                print("Tablekeys are:")
-                print( tablekeys )
                 try:
                     if tablematch(addrset, tablekeys) == 1:
                         logger.info("Running PATHSpider on interface: " +
                                     ifname +"\n")
-                        args = ['pathspider', '-i', ifname]
-                        args.extend(sys.argv[1:])
-                        logger.info("Pathspider command is: " + " ".join(args)+"\n")
-                        subprocess.call(args)
-                except:
-                    logger.info(
-                        "Something went wrong with something tablematchey or pathspiderey")
+                        ds=1
+                        while ds < 63:
+                            res_str=savestr+"."+str(ds)
+                            args = ['pathspider', '-i', ifname, '-o', res_str]
+                            args.extend(sys.argv[1:])
+                            logger.info("Pathspider command is: " + " ".join(args)+"\n")
+                            os.environ["DSCP"] = str(ds)
+                            ds += 1
+                            print (os.environ["DSCP"])
+                            subprocess.call(args)
+                except Exception as e:
+                    logger.error(e)
             # Deletes the route before moving on to the next
             try:
                 subprocess.call(["ip", "rule", "del", "from", "all", "lookup",
                                  str(i), "priority", "32764"])
             except:
-                logger.info("\nError deleting IP-based rule for table" + str(i))
+                logger.error("\nError deleting IP-based rule for table" + str(i))
     # Clean up IPDB before exit
     ip.release()
-    #spec = {'src': 'all', 'table': i, 'priority': '32767'}
-    #ip.rules.add(spec).commit()
-
 
 if __name__ == "__main__":
     sys.exit(main())
