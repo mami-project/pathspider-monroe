@@ -1,55 +1,28 @@
 #!/usr/bin/python3
 # vim: expandtab tabstop=4 syntax=python
+
 import logging
-import sys
-import subprocess
-from threading import Thread
-from pyroute2 import IPDB
-from pyroute2 import IPRoute
-import ipaddress
-import pprint
-import time
-import zmq
+import json
 import os
-ifname=""
+import shutil
+import sys
+from threading import Thread
 
-def cb(ipdb, msg, action):
-    if action == 'RTM_DELLINK':
-        ifn = msg['attrs'][0][1]
-        if ifn == ifname:
-            print("Results invalidated for" + str(ifname))
-            sys.exit(0)   
+from pyroute2 import IPDB # pylint: disable=no-name-in-module
 
-def tablematch( addrset, tablekeys ):
-    for item in dict(addrset).keys():
-        for key in tablekeys:
-            try:
-                if ipaddress.ip_network(item).overlaps(
-                        ipaddress.ip_network(key)):
-                     print(ipaddress.ip_network(item))
-                     print("matches")
-                     print(ipaddress.ip_network(key))
-                     return 1
-                     sys.Exit(1)
-            except ValueError:
-                continue
-            except Exception as e:
-                print(e)
-                return 0
-    return 0
+import zmq
 
 
-def metathread():
+def metadata_receiver():
     context = zmq.Context()
-    socket = context.socket(zmq.SUB)
+    socket = context.socket(zmq.SUB) # pylint: disable=no-member
 
     socket.connect("tcp://172.17.0.1:5556")
     topicfilter = ''
-    socket.setsockopt_string(zmq.SUBSCRIBE, topicfilter)
+    socket.setsockopt_string(zmq.SUBSCRIBE, topicfilter) # pylint: disable=no-member
     while True:
         string = socket.recv()
         print(string)
-
 
 def main():
     # sets up logging
@@ -57,72 +30,53 @@ def main():
     logger = logging.getLogger("multispider")
 
     # Starts metadata thread
-    t1 = Thread(target=metathread, daemon=True)
-    t1.start()
+    metadata_thread = Thread(target=metadata_receiver, daemon=True)
+    metadata_thread.start()
+
+    # Load arguments from scheduler
+    with open('/monroe/config') as configfile:
+        config = json.load(configfile)
 
     # Set up IPDB
-    ip = IPDB()
-    
-    # Starts a callback function 
-    ip.register_callback(cb)
+    ip = IPDB() # pylint: disable=invalid-name
 
     # Creates a set of the available interface names
-    s = set([interface.ifname for interface in ip.interfaces.values()])
+    if_names = set([interface.ifname for interface in ip.interfaces.values()])
 
     # Removes the metadata and lo interfaces from the set
-    try:
-        s.remove('lo')
-        s.remove('metadata')
-    except:
-        logger.error("Metadata or lo not found!\n")
+    if_names.discard('lo')
+    if_names.discard('metadata')
 
-    for a in s:
-        logger.debug("Interface seen: " + str(ip.interfaces[a].ifname) + "\n")
+    output_files = []
 
-    # Gets a list of available table numbers
-    tables = ip.routes.tables.keys()
-    logger.debug("Tables seen: " + str(tables) + "\n")
+    for if_name in if_names:
+        logger.debug("Working on interface: " + str(if_name) + "\n")
 
-    # We're only interested in tables 1, 2 and 3
-    for i in list(tables):
-        if i == 255 or i == 2 or i == 3:
-            logger.info("Table running: "+str(i)) 
-            # Sets default route
-            try:
-                subprocess.call(["ip", "rule", "add", "from", "all", "lookup",
-                                 str(i), "priority", "32764"])
-            except:
-                logger.error("\nError adding IP-based rule for table" + str(i))
-            # Takes IPs for all interfaces and compares them against the table to determine the interface in use
-            for a in s:
-                addrset = ip.interfaces[a].ipaddr
-                ifname = ip.interfaces[a].ifname
-                savestr= "tmp/output." +str(ifname)
-                print("Interface is" + ifname + "\n")
-                tablekeys = ip.routes.tables[i].keys()
-                try:
-                    if tablematch(addrset, tablekeys) == 1:
-                        logger.info("Running PATHSpider on interface: " +
-                                    ifname +"\n")
-                        ds=60
-                        while ds < 63:
-                            res_str=savestr+"."+str(ds)
-                            args = ['pathspider', '-i', ifname, '-o', res_str]
-                            args.extend(sys.argv[1:])
-                            logger.info("Pathspider command is: " + " ".join(args)+"\n")
-                            os.environ["DSCP"] = str(ds)
-                            ds += 1
-                            print (os.environ["DSCP"])
-                            subprocess.call(args)
-                except Exception as e:
-                    logger.error(e)
-            #Deletes the route before moving on to the next
-            try:
-                subprocess.call(["ip", "rule", "del", "from", "all", "lookup",
-                                 str(i), "priority", "32764"])
-            except:
-                logger.error("\nError deleting IP-based rule for table" + str(i))
-    # Clean up IPDB before exit
+        def ipdb_event_handler(ipdb, msg, action):
+            # pylint: disable=cell-var-from-loop
+            if action == 'RTM_DELLINK':
+                if msg['attrs'][0][1] == if_name:
+                    print("Interface went down during experiment run: " + str(if_name))
+                    return 10
+
+        # We won't be too happy if the interface goes down during measurement
+        ipdb_callback_id = ip.register_callback(ipdb_event_handler)
+
+        # Build up the arguments we need
+        output_file = "/tmp/output." + str(if_name)
+        output_files.append(output_file)
+        pathspider_cmd = ["pathspider", "-i", if_name, "--output", output_file, "--input", "/opt/monroe/pathspider/examples/webtest.ndjson"]
+        pathspider_cmd += config['spider_args']
+
+        # Run PATHspider!
+        os.system(" ".join(pathspider_cmd))
+
+        # The callback for this interface is no longer required
+        ip.unregister_callback(ipdb_callback_id)
+
+        # Move the results for export
+        shutil.copy(output_file, "/monroe/results/{}.ndjson".format(if_name))
+
     ip.release()
 
 if __name__ == "__main__":
