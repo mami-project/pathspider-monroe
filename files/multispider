@@ -65,8 +65,10 @@ def main():
         # Build up the arguments we need
         output_file = "/tmp/output." + str(if_name)
         output_files.append(output_file)
-        pathspider_cmd = ["pathspider", "-i", if_name, "--output", output_file, "--input", "/opt/monroe/pathspider/examples/webtest.ndjson"]
+        pathspider_cmd = ["pathspider", "-i", if_name, "--output", output_file, "--input", "/opt/monroe/targets.ndjson"]
         pathspider_cmd += config['spider_args']
+
+        print("running pathspider as "+" ".join(pathspider_cmd))
 
         # Run PATHspider!
         os.system(" ".join(pathspider_cmd))
